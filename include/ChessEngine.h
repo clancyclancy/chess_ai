@@ -145,20 +145,20 @@ private:
 
         
     // quiescence search constants
-    const int QUIESCENCE_SEARCH_MAX_PLY = 10; // idk
+    const int QUIESCENCE_SEARCH_MAX_PLY = 32; // idk
     
     const int MAX_THINKING_TIME_MS = 5000; // idk
          
 
     // end game disable pruning 
     // TODO: implement
-    const int ENDGAME_PHASE_MATERIAL_THRESHOLD = 14; // Q+R 
+    const int ENDGAME_PHASE_MATERIAL_THRESHOLD = 10; // R+R 
     bool inEndgamePhase = false;     
 
 
     // count nodes searched    
     const bool QUICK_PRINTOUT = true;
-    const bool FULL_PRINTOUT_OF_NODES_PER_DEPTH = false;
+    const bool FULL_PRINTOUT_OF_NODES_PER_DEPTH = true;
 
     // total search  
     std::vector<uint64_t> nodesPerDepth;     
@@ -186,6 +186,8 @@ private:
     // SEE 
     uint64_t seeCutqNodes = 0;
 
+    //end game 
+    int WINNING_KPK_EVAL = 500; 
 
      
   
@@ -276,6 +278,8 @@ public:
 
     int evaluateKingToKingDistance(PieceColor sideToMove, int pieceCount) const;
 
+    int evaluateKPKEndgame(PieceColor sideToMove, int pieceCount) const;
+
     void getOrderedMoves(std::vector<Move>& moves, int depth) const;
 
     void setBoard(const Board& newBoard);
@@ -316,8 +320,10 @@ private:
 
     void updatePvLine(int ply, const Move& move);
    
-    int nonPawnMaterialCount() const;           
-    
+    int nonPawnMaterialCount() const;    
+        
+    int getPawnCount() const;
+
     bool isQuietMove(const Move& move) const;
 
     bool isFutilityPruneCandidate(const Move& move) const;

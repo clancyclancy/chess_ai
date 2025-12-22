@@ -24,8 +24,16 @@ GUI <- Engine Response:: AI_MOVE <- Engine Thread
 
 BUGS:
 
+engine sometimes misses checkmates for the opponent 
+engine sometimes misevaluates capture sequences horribly - check SEE
+engine misevaluates pawn pushes - i think disable pruning at a higher material count
 engine sometimes plays moves that cause a bishop to get trapped 
 engine sometimes repeats moves in a winning position 
+
+
+white capture a3b4 is a draw. white plays kg7 at depth 8 which is losing immediately 
+8/8/5K2/2p5/1p2k2B/P7/8/8 w - - 0 1
+- the engine simply cannot see far enough ahead to realize its losing. need to speed up move gen
 
 
 black is one square away from promoting and checkmating white. white thinks they are winning by 0.58 pawns
@@ -67,7 +75,8 @@ aspiration windows causing bad moves
 
 ENGINE:  
 not handling timeouts in qsearch - resolved
-
+isEmpty() is responsible for 9% of cpu time in profile. it is already inlined. 
+dont think can get much more speed from move generation without a complete rewrite using bitboards.
 
 EVALUATION:  
 
@@ -372,9 +381,6 @@ Move ChessEngine::calculateBestMove()
     searchStart = std::chrono::steady_clock::now();
     searchTimeout = false;
 
-    // Move              bestMove(-1, -1, -1, -1);
-    // int               bestEval = -99999; 
-    // std::vector<Move> bestLine;
       
     // Last fully completed iteration                  
     Move              lastCompleteBestMove(-1, -1, -1, -1);  
@@ -696,6 +702,10 @@ int ChessEngine::evaluateBoard() const
 
     score += evaluateKingToKingDistance(sideToMove, pieceCount);
 
+    // specifically KPK endgame
+    // if engine gets to a KPK endgame, even if depth is maxed. it should be able to evaluate a win or draw
+    score += evaluateKPKEndgame(sideToMove, pieceCount);
+
     return score;
 };
 
@@ -709,7 +719,6 @@ int ChessEngine::rawPieceTotal(PieceColor sideToMove) const
     const int BISHOP_VALUE = 300;
     const int ROOK_VALUE   = 500;
     const int QUEEN_VALUE  = 900;
-    const int KING_VALUE   = 2000;
     
     for (int row = 0; row < 8; row++) 
     {
@@ -727,7 +736,6 @@ int ChessEngine::rawPieceTotal(PieceColor sideToMove) const
                 case PieceType::BISHOP: pieceValue = BISHOP_VALUE; break; 
                 case PieceType::ROOK:   pieceValue = ROOK_VALUE;   break;
                 case PieceType::QUEEN:  pieceValue = QUEEN_VALUE;  break;  
-                case PieceType::KING:   pieceValue = KING_VALUE;   break;
                 default: break;
             }
             
@@ -1487,6 +1495,98 @@ int ChessEngine::evaluateKingToKingDistance(PieceColor sideToMove, int pieceCoun
     return score;
 }
 
+int ChessEngine::evaluateKPKEndgame(PieceColor sideToMove, int pieceCount) const
+{
+    // check for king and pawn vs king endgame
+    // 1. can the defender catch the pawn
+    // 2. is the defender in front of the pawn
+    // 3. is the friendly king close enough to help 
+    // 4. otherwise win.
+
+    // TODO: i think the only checks that matter are 1. can the defender catch the pawn ? draw : win
+    
+    if (pieceCount > 0) 
+        return 0; // don't care about non KPK endgames
+
+    // pawn count 
+    if (getPawnCount() > 1) 
+        return 0; // TODO: maybe evaluate KPPK?
+
+    // find pawn
+    int pawnRow = -1;
+    int pawnCol = -1;
+    for (int row = 0; row < 8; row++)
+    {
+        for (int col = 0; col < 8; col++)
+        {
+            const Piece& piece = board.getPieceConst(row, col);
+            if (!piece.isEmpty() &&
+                piece.getType() == PieceType::PAWN)
+            {
+                pawnRow = row;
+                pawnCol = col;
+                break;
+            }
+        }
+        if (pawnRow != -1) 
+            break;
+    }
+
+    if (pawnRow == -1 || pawnCol == -1) 
+    {
+        std::cout << "Error in evaluateKPKEndgame: no pawn found\n";  
+        return 0; // shouldnt get here 
+    }    
+    
+    
+    Piece pawnPiece = board.getPieceConst(pawnRow, pawnCol);
+
+    // only care about friendly pawn 
+    if (pawnPiece.getColor() != sideToMove) 
+        return 0;
+
+    int friendlyKingRow = (sideToMove == PieceColor::WHITE) ? board.getWhiteKingRow() : board.getBlackKingRow();
+    int friendlyKingCol = (sideToMove == PieceColor::WHITE) ? board.getWhiteKingCol() : board.getBlackKingCol();
+
+    int enemyKingRow = (sideToMove == PieceColor::WHITE) ? board.getBlackKingRow() : board.getWhiteKingRow();
+    int enemyKingCol = (sideToMove == PieceColor::WHITE) ? board.getBlackKingCol() : board.getWhiteKingCol();
+
+    
+    int pawnMovesToPromotion = (sideToMove == PieceColor::WHITE) ? pawnRow : (7 - pawnRow);
+    int pawnPromotionCol = pawnCol;
+    int pawnPromotionRow = (sideToMove == PieceColor::WHITE) ? 0 : 7;
+
+    int enemyKingToPawnDist = std::max(std::abs(enemyKingRow - pawnRow), std::abs(enemyKingCol - pawnCol));
+    
+
+    // 1. can the defender catch the pawn  
+    if (enemyKingToPawnDist <= pawnMovesToPromotion)
+        return 0; // defender can catch the pawn
+
+
+    // 2. is the defender in front of the pawn
+    if (abs(pawnCol - enemyKingCol) <= 1) // enemy king close to pawn file
+    {
+        // same file
+        if (sideToMove == PieceColor::WHITE && enemyKingRow <= pawnRow)
+            return 0; // defender is in front of pawn  
+    
+        else if (enemyKingRow >= pawnRow)
+            return 0; // defender is in front of pawn
+    }
+
+    // 3. is friendly king is closer than enemy king, can probably promote
+    int friendlyKingToPawnDist = std::max(std::abs(friendlyKingRow - pawnRow), std::abs(friendlyKingCol - pawnCol));
+    if (friendlyKingToPawnDist < enemyKingToPawnDist)
+    {
+        return WINNING_KPK_EVAL; // likely win
+    }
+
+    // 4. just win
+    return WINNING_KPK_EVAL;
+}
+
+
 void ChessEngine::getOrderedMoves(std::vector<Move>& moves, int ply) const
 {
     // replaced MVV-LVA with SEE
@@ -1636,17 +1736,27 @@ int ChessEngine::qSearch(int alpha, int beta, int qPly)
     // just use raw material to make sure capture chains arent missed
 
 
-    // Endings
-    if (board.isCheckmate())
-    {
-        // + ply to end sooner
-        return -10000 + qPly;
-    }
+    // Endings 
+        if (!board.isLegalMoveAvailable())
+        {
+            if (board.isInCheck(board.getCurrentTurn()))
+            {
+                // + ply to end sooner
+                return -10000 + qPly;
+            }
+            else
+            {
+                // stalemate
+                return 0;
+            }
+        }
+        if (!board.isSufficientMaterial() || board.getFiftyMoveClock() >= 100)    
+        {
+            // stalemate
+            // TODO: add 3 fold repetition    
+            return 0;
+        }
 
-    if (board.isStalemate())
-    {
-        return 0;
-    }
 
 
     int currentEval = evaluateBoard();
@@ -1733,16 +1843,35 @@ int ChessEngine::negamax(int numPlyLeft, int alpha, int beta, int plyCount)
 
 
     // Endings 
-    if (board.isCheckmate()) 
-    { 
-        // + ply to end sooner
-        return -10000 + plyCount;
-    }
-
-    if (board.isStalemate())
+    if (!board.isLegalMoveAvailable())
     {
+        if (board.isInCheck(board.getCurrentTurn()))
+        {
+            // + ply to end sooner
+            return -10000 + plyCount;
+        }
+        else
+        {
+            // stalemate
+            return 0;
+        }
+    }
+    if (!board.isSufficientMaterial() || board.getFiftyMoveClock() >= 100)    
+    {
+        // stalemate
+        // TODO: add 3 fold repetition    
         return 0;
     }
+
+    // Determine phase of game
+    int pieceCount = nonPawnMaterialCount();
+    bool isEndgamePhase = false;
+    if (pieceCount < ENDGAME_PHASE_MATERIAL_THRESHOLD)
+    {
+        inEndgamePhase = true;
+    }
+
+
 
     if (numPlyLeft == 0)
     {
@@ -1770,11 +1899,10 @@ int ChessEngine::negamax(int numPlyLeft, int alpha, int beta, int plyCount)
     // if doing nothing is pretty good, dont search this node
     // only run when depth > 2, not in check, not pawn endgame
     // zugzwang issues if only pawns             
-    if (USE_NULL_MOVE_PRUNING)
+    if (USE_NULL_MOVE_PRUNING && !inEndgamePhase)
     {
         if (numPlyLeft >= NULL_MOVE_PRUNE_MIN_DEPTH && 
-            !board.isInCheck(board.getCurrentTurn()) &&
-            (nonPawnMaterialCount() > 0))
+            !board.isInCheck(board.getCurrentTurn()))
         {
             // make null move
             Board::UndoInfo undoNullMove;
@@ -1817,10 +1945,7 @@ int ChessEngine::negamax(int numPlyLeft, int alpha, int beta, int plyCount)
     for (const Move& move : moves)
     {        
 
-        // get board state info
-        int boardEvaluationBeforeMove = evaluateBoard();                 //for FP
-        int nonPawnMaterialBeforeMove = nonPawnMaterialCount();          //for FP       
-        bool futilityPruneCandidate   = isFutilityPruneCandidate(move);  //for FP
+
 
         bool isCapture = (board.getPieceConst(move.getToRow(), move.getToCol()).getType() != PieceType::EMPTY) || move.isEnPassantMove();  // for LMR       
 
@@ -1841,51 +1966,61 @@ int ChessEngine::negamax(int numPlyLeft, int alpha, int beta, int plyCount)
         // at a depth of 1, a quiet move cannot reasonably raise alpha 
         // if board state + some margin is still less than alpha        
         // dont prune in endgame with low material, can miss a quiet pawn push that is really good
-        if (USE_FUTILITY_PRUNING && 
-            futilityPruneCandidate &&
-            numPlyLeft == 1 && 
-            boardEvaluationBeforeMove + FUTILITY_PRUNE_MARGIN <= alpha &&       
-            nonPawnMaterialBeforeMove > FUTILITY_PRUNE_MIN_NON_PAWN_MATERIAL)       
-        {  
-            // print info about 
-            // log          
-            cutNodes++;  
-            cutNodesPerDepth[plyCount]++;          
-            futilityPruneNodes++;         
-            futilityPruneNodesPerDepth[plyCount]++;                             
+        if (USE_FUTILITY_PRUNING && !inEndgamePhase)
+        {
+            // get board state info
+            int boardEvaluationBeforeMove = evaluateBoard();                 
+            int nonPawnMaterialBeforeMove = nonPawnMaterialCount();            
+            bool futilityPruneCandidate   = isFutilityPruneCandidate(move);
 
-            // undo 
-            board.undoMove(move, undo);              
-            continue; 
-            
+            if (futilityPruneCandidate &&
+                numPlyLeft == 1 && 
+                boardEvaluationBeforeMove + FUTILITY_PRUNE_MARGIN <= alpha &&       
+                nonPawnMaterialBeforeMove > FUTILITY_PRUNE_MIN_NON_PAWN_MATERIAL)       
+            {  
+                // print info about 
+                // log          
+                cutNodes++;  
+                cutNodesPerDepth[plyCount]++;          
+                futilityPruneNodes++;         
+                futilityPruneNodesPerDepth[plyCount]++;                             
+
+                // undo 
+                board.undoMove(move, undo);              
+                continue; 
+                
+            }
         }
          // futility move pruning  -------------------------------------                
  
 
 
-        // late move reductions        
-        bool isKillerMove = (move == killerMove1[plyCount] || move == killerMove2[plyCount]);        
 
-        int reduction = 0;
-
-        if (numPlyLeft >= LATE_MOVE_REDUCTION_MIN_DEPTH && !isCapture && !isKillerMove && moveIndex >= LATE_MOVE_REDUCTION_MIN_MOVE_ORDER)  
-        {
-            reduction = LATE_MOVE_REDUCTION_REDUCTION_AMOUNT; 
-        }        
         
         int score;
-        if (reduction > 0 && USE_LATE_MOVE_REDUCTION)   
-        { 
-            // LMR  
-            // first do a reduced search
-            score = -negamax(numPlyLeft - 1 - reduction, -alpha - 1, -alpha, plyCount + 1); 
 
-            // if it fails high, do a full depth search 
-            if (score > alpha)
-            {  
-                score = -negamax(numPlyLeft - 1, -beta, -alpha, plyCount + 1);
-            } 
-             
+        if (USE_LATE_MOVE_REDUCTION && !isEndgamePhase)   
+        {             
+
+            // late move reductions        
+            bool isKillerMove = (move == killerMove1[plyCount] || move == killerMove2[plyCount]);        
+
+            if (numPlyLeft >= LATE_MOVE_REDUCTION_MIN_DEPTH && !isCapture && !isKillerMove && moveIndex >= LATE_MOVE_REDUCTION_MIN_MOVE_ORDER)  
+            {
+                // LMR  
+                // first do a reduced search     
+                score = -negamax(numPlyLeft - 1 - LATE_MOVE_REDUCTION_REDUCTION_AMOUNT, -alpha - 1, -alpha, plyCount + 1);     
+                
+                // if it fails high, do a full depth search 
+                if (score > alpha)
+                {  
+                    score = -negamax(numPlyLeft - 1, -beta, -alpha, plyCount + 1);  
+                }                             
+            }        
+            else
+            {
+                score = -negamax(numPlyLeft - 1, -beta, -alpha, plyCount + 1);  
+            }             
         }
         else
         {
@@ -2347,6 +2482,26 @@ int ChessEngine::nonPawnMaterialCount() const
     return pieceCount;
     
 }
+
+int ChessEngine::getPawnCount() const
+{
+    int pawnCount = 0;
+
+    for (int r = 0; r < 8; r++)
+    {
+        for (int c = 0; c < 8; c++)
+        {
+            const Piece& p = board.getPieceConst(r, c);
+            if (p.isEmpty()) continue;
+
+            if (p.getType() == PieceType::PAWN)
+                pawnCount += 1;
+        }
+    }
+
+    return pawnCount;
+}
+
 
         
 bool ChessEngine::isQuietMove(const Move& move) const

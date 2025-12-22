@@ -272,6 +272,7 @@ void GUI::handleEvents()
                     // Reset state via engine command and response
                     // do not reset directly here
                     CommandData cmd(EngineCommand::RESET_GAME);
+                    hasLastMove = false;
                     engine->sendCommand(cmd);
                 
                 }

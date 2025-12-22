@@ -98,6 +98,10 @@ int main() {
         return engine->evaluateKingToKingDistance(sideToMove, pieceCount);
     });
 
+    timeFunction("KPK endgame eval", [&](){
+        return engine->evaluateKPKEndgame(sideToMove, pieceCount);
+    });
+
     std::cout << "=============================\n";
 
     timeFunction("Total evaluateBoard()", [&](){

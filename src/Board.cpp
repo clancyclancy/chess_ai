@@ -49,7 +49,9 @@ void Board::setupInitialPosition()
         }
     }
 
-    loadFromFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    //loadFromFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    loadFromFEN("8/8/5K2/2p5/1p2k2B/P7/8/8 w - - 0 1"); // debug
+    
     //loadFromFEN("8/8/8/4k3/8/8/R7/3K4 w - - 0 1");    // test endgame: KR vs k
     //loadFromFEN("8/8/8/1K6/4k3/4p3/R7/8 w - - 0 1");  // test endgame: KR vs kp
 
@@ -142,12 +144,7 @@ bool Board::loadFromFEN(const std::string& fen)
 
     return true;
 }
-const Piece& Board::getPieceConst(int row, int col) const 
-{
-    return board[row][col];
-}
-
-// Piece& Board::getPieceMutable(int row, int col) 
+// const Piece& Board::getPieceConst(int row, int col) const 
 // {
 //     return board[row][col];
 // }
@@ -951,7 +948,7 @@ std::vector<Move> Board::generateQSearchMoves() const
                     // TODO: add checks later if move gen is faster
                     bool isCapture = !target.isEmpty();
                     bool isPromotion = m.getIsPromotion();                    
-                    if (isCapture)// || isPromotion) 
+                    if (isCapture || isPromotion) 
                     {
                         captures.push_back(m);
                     }
@@ -1322,7 +1319,87 @@ bool Board::isStalemate()
 
 }
 
+bool Board::isLegalMoveAvailable() 
+{
+    
+        for (int r = 0; r < 8; r++) 
+        {
+            for (int c = 0; c < 8; c++) 
+            {
+                const Piece& piece = board[r][c];
+                if (!piece.isEmpty() && piece.getColor() == currentTurn) 
+                {
+                    //std::vector<Move> moves = getLegalMoves(r, c);
+                    std::vector<Move> moves = generatePseudoLegalMoves(r, c);
 
+                    if (!moves.empty()) 
+                    {
+                        // make move and check if king is in check 
+                        for (const Move& move : moves) 
+                        {
+                            Board::UndoInfo undo;
+
+                            makeUncheckedMove(move, undo, true);
+                            
+                            PieceColor movedSide = undo.previousTurn;
+                            
+                            if (isInCheck(movedSide))
+                            {
+                                undoMove(move, undo);
+                                continue; // illegal move
+                            }                   
+                            else  
+                            {  
+                                undoMove(move, undo);  
+                                return true; // legal move found
+                            }          
+                        }             
+                    }
+                }
+            }
+        }
+
+    return false;
+}
+
+bool Board::isSufficientMaterial() const
+{
+    int minorPiecesWhite = 0;
+    int minorPiecesBlack = 0;
+
+    for (int r = 0; r < 8; r++) 
+    {
+        for (int c = 0; c < 8; c++) 
+        {
+            const Piece& piece = board[r][c];
+            if (!piece.isEmpty()) 
+            {
+                PieceType type = piece.getType();
+                if (type == PieceType::PAWN || type == PieceType::QUEEN || type == PieceType::ROOK) 
+                {
+                    return true; // sufficient material 
+                } 
+                if (type == PieceType::BISHOP || type == PieceType::KNIGHT)  
+                {
+                    if (piece.getColor() == PieceColor::WHITE) 
+                    {
+                        minorPiecesWhite++;
+                    }  
+                    else
+                    {  
+                        minorPiecesBlack++;
+                    }
+                    if (minorPiecesWhite > 1 || minorPiecesBlack > 1) 
+                    {
+                        return true; // sufficient material 
+                    }
+                } 
+            } 
+        }
+    } 
+
+    return false; // insufficient material 
+}
 // TODO: update with directional attack logic
 // VS Profiler is unhappy with generatePseudoLegalMoves and checking each move for attacking the row,col square
 // directional attack logic is about an order of magnitude faster... hot damn

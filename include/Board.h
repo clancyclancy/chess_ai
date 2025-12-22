@@ -196,10 +196,15 @@ public:
     };
 
     void resetBoard();
+
+    int getFiftyMoveClock() const { return halfMoveClock; }
     
     bool loadFromFEN(const std::string& fen);
 
-    const Piece& getPieceConst(int row, int col) const;
+    inline const Piece& getPieceConst(int row, int col) const
+    {
+        return board[row][col];
+    }
 
     bool isValidPosition(int row, int col) const;
 
@@ -234,6 +239,10 @@ public:
     bool isCheckmate();
 
     bool isStalemate();
+
+    bool isLegalMoveAvailable();
+
+    bool isSufficientMaterial() const;
 
     PieceColor getCurrentTurn() const { return currentTurn; }
 
