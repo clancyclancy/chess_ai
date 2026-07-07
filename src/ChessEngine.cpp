@@ -1543,49 +1543,44 @@ int ChessEngine::evaluateKPKEndgame(PieceColor sideToMove, int pieceCount) const
     
     Piece pawnPiece = board.getPieceConst(pawnRow, pawnCol);
 
-    // only care about friendly pawn 
-    if (pawnPiece.getColor() != sideToMove) 
-        return 0;
+    // evaluate for the pawn owner, then flip if the defender is the side to
+    // move: the eval must be antisymmetric or negamax sees different scores
+    // for the same position depending on whose turn it is
+    PieceColor attacker = pawnPiece.getColor();
+    int sign = (attacker == sideToMove) ? 1 : -1;
 
-    int friendlyKingRow = (sideToMove == PieceColor::WHITE) ? board.getWhiteKingRow() : board.getBlackKingRow();
-    int friendlyKingCol = (sideToMove == PieceColor::WHITE) ? board.getWhiteKingCol() : board.getBlackKingCol();
+    int defenderKingRow = (attacker == PieceColor::WHITE) ? board.getBlackKingRow() : board.getWhiteKingRow();
+    int defenderKingCol = (attacker == PieceColor::WHITE) ? board.getBlackKingCol() : board.getWhiteKingCol();
 
-    int enemyKingRow = (sideToMove == PieceColor::WHITE) ? board.getBlackKingRow() : board.getWhiteKingRow();
-    int enemyKingCol = (sideToMove == PieceColor::WHITE) ? board.getBlackKingCol() : board.getWhiteKingCol();
+    int promotionRow = (attacker == PieceColor::WHITE) ? 0 : 7;
+    int promotionCol = pawnCol;
 
-    
-    int pawnMovesToPromotion = (sideToMove == PieceColor::WHITE) ? pawnRow : (7 - pawnRow);
-    int pawnPromotionCol = pawnCol;
-    int pawnPromotionRow = (sideToMove == PieceColor::WHITE) ? 0 : 7;
+    // moves for the pawn to promote; the first move may be a double step
+    int pawnDist = std::abs(promotionRow - pawnRow);
+    int startRow = (attacker == PieceColor::WHITE) ? 6 : 1;
+    if (pawnRow == startRow && pawnDist > 1)
+        pawnDist--;
 
-    int enemyKingToPawnDist = std::max(std::abs(enemyKingRow - pawnRow), std::abs(enemyKingCol - pawnCol));
-    
+    // 1. rule of the square: measure the defender against the PROMOTION
+    //    SQUARE (not the pawn), with one extra step if it is their move
+    int defenderDist = std::max(std::abs(defenderKingRow - promotionRow),
+                                std::abs(defenderKingCol - promotionCol));
+    bool defenderToMove = (sideToMove != attacker);
+    if (defenderDist - (defenderToMove ? 1 : 0) <= pawnDist)
+        return 0; // defender reaches the square: let the search sort it out
 
-    // 1. can the defender catch the pawn  
-    if (enemyKingToPawnDist <= pawnMovesToPromotion)
-        return 0; // defender can catch the pawn
-
-
-    // 2. is the defender in front of the pawn
-    if (abs(pawnCol - enemyKingCol) <= 1) // enemy king close to pawn file
+    // 2. defender camped on the pawn's path (guarded per color: "in front"
+    //    means toward the promotion rank)
+    if (std::abs(pawnCol - defenderKingCol) <= 1)
     {
-        // same file
-        if (sideToMove == PieceColor::WHITE && enemyKingRow <= pawnRow)
-            return 0; // defender is in front of pawn  
-    
-        else if (enemyKingRow >= pawnRow)
-            return 0; // defender is in front of pawn
+        if (attacker == PieceColor::WHITE && defenderKingRow <= pawnRow)
+            return 0;
+        if (attacker == PieceColor::BLACK && defenderKingRow >= pawnRow)
+            return 0;
     }
 
-    // 3. is friendly king is closer than enemy king, can probably promote
-    int friendlyKingToPawnDist = std::max(std::abs(friendlyKingRow - pawnRow), std::abs(friendlyKingCol - pawnCol));
-    if (friendlyKingToPawnDist < enemyKingToPawnDist)
-    {
-        return WINNING_KPK_EVAL; // likely win
-    }
-
-    // 4. just win
-    return WINNING_KPK_EVAL;
+    // 3. defender can neither catch nor block the pawn
+    return sign * WINNING_KPK_EVAL;
 }
 
 
