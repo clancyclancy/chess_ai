@@ -17,4 +17,4 @@ hash fully identifies the code.
 
 | file | date | git | notes |
 |---|---|---|---|
-| `ChessUCI-baseline-20260706.exe` | 2026-07-06 | `f9aeaa6` ("debug") + uncommitted changes | First frozen baseline. Search: iterative deepening, aspiration windows, null-move pruning, futility pruning, LMR, quiescence + SEE, killer/history move ordering. Built Release (Ninja/MSVC) the day the UCI adapter and testbed were added; the uncommitted diff includes the UCI front-end itself plus in-progress Board.cpp/ChessEngine.cpp edits. Selftest passed. |
+| `ChessUCI-7d7cdff-20260706.exe` | 2026-07-06 | `7d7cdff` (clean tree) | First frozen baseline. Search: iterative deepening, aspiration windows, null-move pruning, futility pruning, LMR, quiescence + SEE, killer/history move ordering. Built Release (Ninja/MSVC) from the commit that added the UCI adapter and testbed. Selftest passed. |
