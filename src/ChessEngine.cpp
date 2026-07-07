@@ -2172,7 +2172,10 @@ int ChessEngine::SEE(const Move& move) const
         depth++;
 
         if (depth >= 16)
-            break; 
+        {
+            depth--; // gain[depth] not written this iteration; unwind starts at the last written entry
+            break;
+        }
 
         gain[depth] = pieceValue(pieceToBeCaptured) - gain[depth - 1];
 
@@ -2228,13 +2231,16 @@ int ChessEngine::SEE(const Move& move) const
     //     // -gain[i+1] is the value if the continues and lets the opponent reply
     //     gain[d] = std::max( gain[d], -gain[d + 1]);
     // }
-    while (depth > 1)
+    // fold from the deepest exchange down: gain[d-1] = min(gain[d-1], -gain[d])
+    // the loop must start at the last written entry (depth), otherwise the
+    // final recapture never counts and e.g. QxP defended by a pawn scores +100
+    while (depth > 0)
     {
-        depth--;
         if (gain[depth-1] > -1*gain[depth])
         {
             gain[depth-1] = -1*gain[depth];
         }
+        depth--;
     }
 
     return gain[0];
