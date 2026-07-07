@@ -1933,8 +1933,27 @@ int ChessEngine::negamax(int numPlyLeft, int alpha, int beta, int plyCount)
 
 
 
+    // futility pruning precomputation -------------------------------------
+    // static eval, material, and check state are per-node constants: compute
+    // them once, BEFORE any move is made. (the old code evaluated after
+    // makeUncheckedMove, so isQuietMove always saw the moved piece on the
+    // target square and the prune never fired -- while paying a full
+    // evaluateBoard() per move at every depth)
+    bool futilityNode = false;
+    int  futilityStaticEval = 0;
+    if (USE_FUTILITY_PRUNING && !endgamePhase &&
+        numPlyLeft == 1 &&
+        pieceCount > FUTILITY_PRUNE_MIN_NON_PAWN_MATERIAL &&
+        !board.isInCheck(board.getCurrentTurn()))
+    {
+        futilityStaticEval = evaluateBoard();
+        futilityNode = true;
+    }
+    // futility pruning precomputation -------------------------------------
+
+
     // i cant believe modern engines generate only pseudolegalmoves
-    // on first glance this is insane but 
+    // on first glance this is insane but
     // the search tree must grow
     std::vector<Move> moves = board.generateAllPseudoLegalMoves();
     
@@ -1948,8 +1967,13 @@ int ChessEngine::negamax(int numPlyLeft, int alpha, int beta, int plyCount)
 
 
 
-        bool isCapture = (board.getPieceConst(move.getToRow(), move.getToCol()).getType() != PieceType::EMPTY) || move.isEnPassantMove();  // for LMR       
+        bool isCapture = (board.getPieceConst(move.getToRow(), move.getToCol()).getType() != PieceType::EMPTY) || move.isEnPassantMove();  // for LMR
 
+        // futility decision needs the pre-move board (quiet? passed pawn push?)
+        // and the current alpha; the actual prune happens after the legality check
+        bool futilityPrunable = futilityNode &&
+                                futilityStaticEval + FUTILITY_PRUNE_MARGIN <= alpha &&
+                                isFutilityPruneCandidate(move);
 
         Board::UndoInfo undo;
         board.makeUncheckedMove(move, undo, true);
@@ -1964,40 +1988,22 @@ int ChessEngine::negamax(int numPlyLeft, int alpha, int beta, int plyCount)
         foundLegalMove = true;
 
         // futility move pruning  -------------------------------------
-        // at a depth of 1, a quiet move cannot reasonably raise alpha 
-        // if board state + some margin is still less than alpha        
-        // dont prune in endgame with low material, can miss a quiet pawn push that is really good
-        if (USE_FUTILITY_PRUNING && !endgamePhase)
+        // at depth 1 a quiet move cannot reasonably raise alpha when the
+        // static eval + margin is still below it
+        if (futilityPrunable)
         {
-            // get board state info
-            int boardEvaluationBeforeMove = evaluateBoard();                 
-            int nonPawnMaterialBeforeMove = nonPawnMaterialCount();            
-            bool futilityPruneCandidate   = isFutilityPruneCandidate(move);
+            cutNodes++;
+            cutNodesPerDepth[plyCount]++;
+            futilityPruneNodes++;
+            futilityPruneNodesPerDepth[plyCount]++;
 
-            if (futilityPruneCandidate &&
-                numPlyLeft == 1 && 
-                boardEvaluationBeforeMove + FUTILITY_PRUNE_MARGIN <= alpha &&       
-                nonPawnMaterialBeforeMove > FUTILITY_PRUNE_MIN_NON_PAWN_MATERIAL)       
-            {  
-                // print info about 
-                // log          
-                cutNodes++;  
-                cutNodesPerDepth[plyCount]++;          
-                futilityPruneNodes++;         
-                futilityPruneNodesPerDepth[plyCount]++;                             
-
-                // undo 
-                board.undoMove(move, undo);              
-                continue; 
-                
-            }
+            board.undoMove(move, undo);
+            continue;
         }
-         // futility move pruning  -------------------------------------                
- 
+        // futility move pruning  -------------------------------------
 
 
 
-        
         int score;
 
         if (USE_LATE_MOVE_REDUCTION && !endgamePhase)
@@ -2081,12 +2087,17 @@ int ChessEngine::negamax(int numPlyLeft, int alpha, int beta, int plyCount)
         moveIndex++; // LMR  
     }
 
-    // fall back 
+    // fall back
     if (!foundLegalMove)
     {
         std::cout << "WARNING: No legal moves found at depth " << numPlyLeft << "\n";
-        return evaluateBoard(); 
-    }    
+        return evaluateBoard();
+    }
+
+    // every legal move was futility-pruned: fail low with the static eval
+    // rather than returning the -99999 sentinel as if we were mated
+    if (bestScore == -99999)
+        return futilityStaticEval;
 
     return bestScore;
 }
