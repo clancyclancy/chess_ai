@@ -18,5 +18,24 @@ window.MATCH_HISTORY = [
   "incidents": 1,
   "duration_s": 174,
   "out_dir": "testbed\\results\\bugfix_sanity"
+ },
+ {
+  "date": "2026-07-07T00:48:34",
+  "label_a": "bugfixes",
+  "label_b": "baseline",
+  "engine_a": "build\\ChessUCI.exe",
+  "engine_b": "testbed\\baselines\\ChessUCI-424b0e0-20260706.exe",
+  "control": "1000 ms/move",
+  "games": 100,
+  "wins": 60,
+  "losses": 11,
+  "draws": 29,
+  "score": 0.745,
+  "elo": 186.2,
+  "margin": 64.0,
+  "los": 1.0,
+  "incidents": 9,
+  "duration_s": 4477,
+  "out_dir": "C:\\Users\\clanc\\VSCode\\chess_ai\\testbed\\results\\match_20260706_233357"
  }
 ];

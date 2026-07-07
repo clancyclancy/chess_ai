@@ -621,7 +621,8 @@ def write_outputs(match: Match, cfg, out_dir: Path, elapsed_s: float):
     print(f"outputs: {out_dir / 'games.pgn'}, {out_dir / 'summary.txt'}, "
           f"{out_dir / 'incidents.log'}")
 
-    append_history(match, cfg, out_dir, elapsed_s)
+    if not cfg.no_history:
+        append_history(match, cfg, out_dir, elapsed_s)
 
 
 def main():
@@ -646,6 +647,8 @@ def main():
                     help="games in parallel; keep <= physical cores / 2 for fair timing")
     ap.add_argument("--seed", type=int, default=42, help="shuffles opening order only")
     ap.add_argument("--out", default=None, help="output directory (default: testbed/results/<timestamp>)")
+    ap.add_argument("--no-history", action="store_true",
+                    help="do not append this match to testbed/history.json (smoke/test runs)")
     ap.add_argument("--sprt", action="store_true",
                     help="sequential test instead of a fixed number of games")
     ap.add_argument("--elo0", type=float, default=0.0)
