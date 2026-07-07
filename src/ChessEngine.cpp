@@ -670,12 +670,16 @@ int ChessEngine::evaluateBoard() const
     // only midgame table for everything else
     score += evaluatePieceSquareTables(sideToMove, pieceCount);
 
+    // bishop pair
+    // two bishops cover both square colors; classic small bonus
+    score += evaluateBishopPair(sideToMove);
+
     // pawn structure
     // connected pawns
     // isolated
     // doubled
     // passed pawns
-    // connected passed pawns 
+    // connected passed pawns
     score += evaluatePawnStructure(sideToMove);
 
       
@@ -705,6 +709,11 @@ int ChessEngine::evaluateBoard() const
     // specifically KPK endgame
     // if engine gets to a KPK endgame, even if depth is maxed. it should be able to evaluate a win or draw
     score += evaluateKPKEndgame(sideToMove, pieceCount);
+
+    // tempo: having the move is worth a little. deliberately not
+    // antisymmetric -- both perspectives include their own +TEMPO_BONUS,
+    // which is the point (side to move really does have an edge)
+    score += TEMPO_BONUS;
 
     return score;
 };
@@ -938,6 +947,33 @@ int ChessEngine::evaluatePieceSquareTables(PieceColor sideToMove, int pieceCount
     return blended;
 }
 
+int ChessEngine::evaluateBishopPair(PieceColor sideToMove) const
+{
+    int whiteBishops = 0;
+    int blackBishops = 0;
+
+    for (int row = 0; row < 8; row++)
+    {
+        for (int col = 0; col < 8; col++)
+        {
+            const Piece& piece = board.getPieceConst(row, col);
+            if (piece.isEmpty() || piece.getType() != PieceType::BISHOP)
+                continue;
+
+            if (piece.getColor() == PieceColor::WHITE)
+                whiteBishops++;
+            else
+                blackBishops++;
+        }
+    }
+
+    int score = 0;
+    if (whiteBishops >= 2) score += BISHOP_PAIR_BONUS;
+    if (blackBishops >= 2) score -= BISHOP_PAIR_BONUS;
+
+    return (sideToMove == PieceColor::WHITE) ? score : -score;
+}
+
 int ChessEngine::evaluatePawnStructure(PieceColor sideToMove) const
 {
  
@@ -1024,8 +1060,11 @@ int ChessEngine::evaluatePawnStructure(PieceColor sideToMove) const
 
     // passed pawns
     // no enemy pawn in left, center, right col
+    // bonus grows with proximity to promotion (index = white row; mirror for
+    // black): a passer on the 7th is worth several of one on the 3rd
+    static const int PASSED_PAWN_BONUS[8] = { 0, 150, 100, 60, 40, 25, 15, 0 };
 
-    // white 
+    // white
     for (auto [row, col] : wps)
     {
         bool passed = true;
@@ -1057,7 +1096,7 @@ int ChessEngine::evaluatePawnStructure(PieceColor sideToMove) const
 
         if (passed)
         {
-            score += 50;
+            score += PASSED_PAWN_BONUS[row];
         }
     }
 
@@ -1089,9 +1128,9 @@ int ChessEngine::evaluatePawnStructure(PieceColor sideToMove) const
 
         if (passed)
         {
-            score -= 50;
+            score -= PASSED_PAWN_BONUS[7 - row];
         }
-    }   
+    }
 
 
     // protected pawn structure

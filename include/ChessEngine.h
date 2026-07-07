@@ -189,8 +189,12 @@ private:
     // SEE 
     uint64_t seeCutqNodes = 0;
 
-    //end game 
-    int WINNING_KPK_EVAL = 500; 
+    //end game
+    int WINNING_KPK_EVAL = 500;
+
+    // eval terms
+    const int BISHOP_PAIR_BONUS = 40; // owning both bishops
+    const int TEMPO_BONUS       = 15; // having the move
 
      
   
@@ -272,6 +276,8 @@ public:
     int evaluatePieceSquareTables(PieceColor sideToMove, int pieceCount) const;
 
     int evaluatePawnStructure(PieceColor sideToMove) const;
+
+    int evaluateBishopPair(PieceColor sideToMove) const;
 
     int evaluatePieceMobility(PieceColor sideToMove, int pieceCount) const;
 
