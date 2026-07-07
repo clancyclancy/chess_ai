@@ -1365,7 +1365,9 @@ int ChessEngine::evaluateKingSafety(PieceColor sideToMove, int pieceCount) const
     // score is negative if black is better. if sideToMove is black, flip
     score = (sideToMove == PieceColor::WHITE) ? score : -score;
 
-    return score * (pieceCount / MAX_PHASE); // scale by game phase
+    // multiply before dividing: (pieceCount / MAX_PHASE) is integer math and
+    // truncates to 0 for anything below full material, zeroing the whole term
+    return score * pieceCount / MAX_PHASE; // scale by game phase
 }
 
 int ChessEngine::evaluateKingRestriction(PieceColor sideToMove, int pieceCount) const
