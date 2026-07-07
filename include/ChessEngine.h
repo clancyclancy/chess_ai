@@ -8,6 +8,7 @@
 #include <queue>
 #include <condition_variable>
 #include <chrono>
+#include <atomic>
 
 
 // gui command to engine
@@ -147,7 +148,9 @@ private:
     // quiescence search constants
     const int QUIESCENCE_SEARCH_MAX_PLY = 32; // idk
     
-    const int MAX_THINKING_TIME_MS = 5000; // idk
+    // runtime-settable so the UCI front-end can pass a "go movetime <ms>" budget per search
+    // atomic because the uci/gui thread writes it while the engine thread reads it in timeExceeded()
+    std::atomic<int> MAX_THINKING_TIME_MS{5000};
          
 
     // end game disable pruning 
@@ -158,7 +161,7 @@ private:
 
     // count nodes searched    
     const bool QUICK_PRINTOUT = true;
-    const bool FULL_PRINTOUT_OF_NODES_PER_DEPTH = true;
+    const bool FULL_PRINTOUT_OF_NODES_PER_DEPTH = false;
 
     // total search  
     std::vector<uint64_t> nodesPerDepth;     
@@ -283,6 +286,19 @@ public:
     void getOrderedMoves(std::vector<Move>& moves, int depth) const;
 
     void setBoard(const Board& newBoard);
+
+    // runtime search configuration (used by the UCI front-end)
+    // call these before sending COMPUTE_AI_MOVE; the commandQueue mutex makes the writes visible to the engine thread
+    void setMaxThinkingTimeMs(int ms) { MAX_THINKING_TIME_MS = ms; }
+    int  getMaxThinkingTimeMs() const { return MAX_THINKING_TIME_MS; }
+
+    void setSearchDepth(int depth)
+    {
+        if (depth < 1) depth = 1;
+        if (depth > MAX_PLY - 1) depth = MAX_PLY - 1;
+        aiSearchDepth = depth;
+    }
+    int  getSearchDepth() const { return aiSearchDepth; }
 
 private:
 

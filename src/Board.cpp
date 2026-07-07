@@ -49,8 +49,8 @@ void Board::setupInitialPosition()
         }
     }
 
-    //loadFromFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-    loadFromFEN("8/8/5K2/2p5/1p2k2B/P7/8/8 w - - 0 1"); // debug
+    loadFromFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    //loadFromFEN("8/8/5K2/2p5/1p2k2B/P7/8/8 w - - 0 1"); // engine doesnt see deep enough to find a3b4 is drawing and everything else is losing
     
     //loadFromFEN("8/8/8/4k3/8/8/R7/3K4 w - - 0 1");    // test endgame: KR vs k
     //loadFromFEN("8/8/8/1K6/4k3/4p3/R7/8 w - - 0 1");  // test endgame: KR vs kp

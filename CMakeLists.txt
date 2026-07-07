@@ -66,7 +66,7 @@ add_executable(MoveGen
     src/ChessEngine.cpp
 )
 
-add_executable(EvaluationTesting 
+add_executable(EvaluationTesting
     src/EvaluationTesting.cpp
     src/Board.cpp
     src/Piece.cpp
@@ -74,10 +74,25 @@ add_executable(EvaluationTesting
     src/ChessEngine.cpp
 )
 
+# UCI front-end for the testbed match runner (testbed/run_match.py) and chess GUIs.
+# No SDL dependency: it only needs the engine core.
+add_executable(ChessUCI
+    src/uci_main.cpp
+    src/Board.cpp
+    src/Piece.cpp
+    src/Move.cpp
+    src/ChessEngine.cpp
+)
+
+if(WIN32)
+    # timeBeginPeriod: 1ms sleep granularity so bestmove isn't delayed ~16ms
+    target_link_libraries(ChessUCI PRIVATE winmm)
+endif()
+
 # -----------------------------------------
 # Apply Profile flags to all executables
 # -----------------------------------------
-foreach(target ChessAI MoveGen EvaluationTesting)
+foreach(target ChessAI MoveGen EvaluationTesting ChessUCI)
     target_compile_options(${target} PRIVATE 
         $<$<CONFIG:Profile>:/Zi /Od /Ob0 /Oy- /RTC- /GS->
     )
