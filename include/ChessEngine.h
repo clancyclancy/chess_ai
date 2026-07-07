@@ -72,11 +72,12 @@ struct ResponseData
                 response(EngineResponse::GAME_STATE_UPDATE), 
                 success(false), 
                 move(0, 0, 0, 0),   
-                isCheck(false), 
-                isCheckmate(false), 
-                isStalemate(false),         
-                currentTurn(PieceColor::WHITE) 
-                {        
+                isCheck(false),
+                isCheckmate(false),
+                isStalemate(false),
+                currentTurn(PieceColor::WHITE),
+                eval(0)
+                {
                 }
 };
       
@@ -294,8 +295,10 @@ public:
 
     void setSearchDepth(int depth)
     {
+        // capped at 64: keeps ply well clear of the MAX_PLY-sized pv/killer
+        // arrays and negamax's assert(plyCount < MAX_PLY - 1) boundary
         if (depth < 1) depth = 1;
-        if (depth > MAX_PLY - 1) depth = MAX_PLY - 1;
+        if (depth > 64) depth = 64;
         aiSearchDepth = depth;
     }
     int  getSearchDepth() const { return aiSearchDepth; }

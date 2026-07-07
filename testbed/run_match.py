@@ -62,6 +62,7 @@ class UciEngine:
         except OSError as e:
             raise EngineError(f"failed to launch {path}: {e}")
         self._lines: "queue.Queue[str|None]" = queue.Queue()
+        self.notes = []   # "info string ..." lines seen while waiting (engine anomalies)
         t = threading.Thread(target=self._reader, daemon=True)
         t.start()
 
@@ -96,6 +97,10 @@ class UciEngine:
             parts = line.split()
             if parts and parts[0] == keyword:
                 return line
+            # engines only send "info string" for anomalies (fallback move,
+            # rejected position); surface them instead of discarding
+            if len(parts) >= 2 and parts[0] == "info" and parts[1] == "string":
+                self.notes.append(" ".join(parts[2:]))
 
     def handshake(self, timeout: float = 10.0):
         self.send("uci")
@@ -265,6 +270,10 @@ def play_game(rec: GameRecord, path_a: str, path_b: str, cfg) -> GameRecord:
 
             try:
                 uci, elapsed = mover.bestmove(pos_cmd, go_cmd, deadline)
+                for note in mover.notes:
+                    rec.incidents.append(
+                        f"game {rec.game_id}: {side_name(board.turn)} says: {note}")
+                mover.notes.clear()
             except EngineTimeout:
                 loss_for(board.turn,
                          f"time forfeit: no bestmove within {deadline:.2f}s "
@@ -313,11 +322,16 @@ def match_stats(w: int, d: int, l: int):
     if n == 0:
         return 0.5, 0.0, float("inf"), 0.5
     score = (w + 0.5 * d) / n
-    var = (w * (1 - score) ** 2 + d * (0.5 - score) ** 2 + l * (0 - score) ** 2) / n
-    se = math.sqrt(var / n)
     elo = elo_from_score(score)
-    lo = elo_from_score(score - 1.96 * se)
-    hi = elo_from_score(score + 1.96 * se)
+    # error bar from regularized counts (half-game prior): an all-decisive
+    # record must not report zero variance ("+3600 +/- 0" after one win)
+    rw, rd, rl = w + 0.5, d + 0.5, l + 0.5
+    rn = rw + rd + rl
+    rscore = (rw + 0.5 * rd) / rn
+    var = (rw * (1 - rscore) ** 2 + rd * (0.5 - rscore) ** 2 + rl * (0 - rscore) ** 2) / rn
+    se = math.sqrt(var / rn)
+    lo = elo_from_score(rscore - 1.96 * se)
+    hi = elo_from_score(rscore + 1.96 * se)
     margin = max(hi - elo, elo - lo)  # slightly asymmetric; report the wider side
     los = 0.5 * (1 + math.erf((w - l) / math.sqrt(2 * (w + l)))) if (w + l) > 0 else 0.5
     return score, elo, margin, los
@@ -325,9 +339,12 @@ def match_stats(w: int, d: int, l: int):
 
 def sprt_llr(w: int, d: int, l: int, elo0: float, elo1: float) -> float:
     """GSPRT log-likelihood ratio approximation (trinomial, logistic elo)."""
-    n = w + d + l
-    if n == 0:
+    if w + d + l == 0:
         return 0.0
+    # half-game prior: keeps the variance finite on lopsided records so an
+    # all-wins streak registers as strong evidence instead of llr 0.0
+    w, d, l = w + 0.5, d + 0.5, l + 0.5
+    n = w + d + l
     ww, dd = w / n, d / n
     s = ww + dd / 2.0
     m2 = ww + dd / 4.0
@@ -338,6 +355,10 @@ def sprt_llr(w: int, d: int, l: int, elo0: float, elo1: float) -> float:
     s0 = 1.0 / (1.0 + 10.0 ** (-elo0 / 400.0))
     s1 = 1.0 / (1.0 + 10.0 ** (-elo1 / 400.0))
     return (s1 - s0) * (2.0 * s - s0 - s1) / (2.0 * var_s)
+
+
+def sprt_bounds(alpha: float, beta: float):
+    return math.log(beta / (1 - alpha)), math.log((1 - beta) / alpha)
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +403,7 @@ class Match:
         self.w = self.d = self.l = 0     # from A's perspective
         self.lock = threading.Lock()
         self.stop = threading.Event()    # set when SPRT reaches a decision
+        self.threads = []
 
     def _tally(self, rec: GameRecord):
         with self.lock:
@@ -407,8 +429,7 @@ class Match:
 
             if self.cfg.sprt:
                 llr = sprt_llr(self.w, self.d, self.l, self.cfg.elo0, self.cfg.elo1)
-                lower = math.log(self.cfg.beta / (1 - self.cfg.alpha))
-                upper = math.log((1 - self.cfg.beta) / self.cfg.alpha)
+                lower, upper = sprt_bounds(self.cfg.alpha, self.cfg.beta)
                 print(f"    SPRT: llr {llr:.2f} in [{lower:.2f}, {upper:.2f}]")
                 if llr <= lower or llr >= upper:
                     self.stop.set()
@@ -449,13 +470,19 @@ class Match:
                     rec = work.get_nowait()
                 except queue.Empty:
                     return
-                play_game(rec, cfg.engine_a, cfg.engine_b, cfg)
+                try:
+                    play_game(rec, cfg.engine_a, cfg.engine_b, cfg)
+                except Exception as e:
+                    # referee bug: score a draw and log it rather than silently
+                    # killing this worker and losing the game from the report
+                    rec.result, rec.reason = "1/2-1/2", "referee error"
+                    rec.incidents.append(f"game {rec.game_id}: referee exception: {e!r}")
                 self._tally(rec)
 
-        threads = [threading.Thread(target=worker) for _ in range(cfg.concurrency)]
-        for t in threads:
+        self.threads = [threading.Thread(target=worker) for _ in range(cfg.concurrency)]
+        for t in self.threads:
             t.start()
-        for t in threads:
+        for t in self.threads:
             t.join()
 
 
@@ -503,8 +530,7 @@ def write_outputs(match: Match, cfg, out_dir: Path, elapsed_s: float):
     p(f"LOS:   {los*100:.1f}%")
     if cfg.sprt:
         llr = sprt_llr(w, d, l, cfg.elo0, cfg.elo1)
-        lower = math.log(cfg.beta / (1 - cfg.alpha))
-        upper = math.log((1 - cfg.beta) / cfg.alpha)
+        lower, upper = sprt_bounds(cfg.alpha, cfg.beta)
         if llr >= upper:
             verdict = f"H1 accepted: elo >= {cfg.elo1}"
         elif llr <= lower:
@@ -580,11 +606,16 @@ def main():
     cfg.label_b = cfg.label_b or Path(cfg.engine_b).stem + "-B"
 
     openings = load_openings(Path(cfg.openings))
+    games_explicit = cfg.games is not None
     if cfg.games is None:
         cfg.games = 2 * len(openings)
     if cfg.games % 2:
         print(f"note: rounding --games down to {cfg.games - 1} to keep color-reversed pairs")
         cfg.games -= 1
+    if cfg.sprt and games_explicit:
+        # an explicit --games acts as the SPRT cap instead of being ignored
+        cfg.max_games = min(cfg.max_games, cfg.games)
+        print(f"note: SPRT capped at --games {cfg.max_games}")
 
     print(f"openings: {len(openings)} loaded from {cfg.openings} (all validated)")
     preflight(cfg.engine_a, cfg.label_a)
@@ -600,8 +631,13 @@ def main():
     try:
         match.run()
     except KeyboardInterrupt:
-        print("\ninterrupted: reporting completed games only")
+        # join the workers before reporting: write_outputs must not race _tally
+        print("\ninterrupted: waiting for in-flight games to finish "
+              "(Ctrl-C again to abort without a report)")
         match.stop.set()
+        for t in match.threads:
+            t.join()
+        print("reporting completed games only")
     write_outputs(match, cfg, out_dir, time.monotonic() - t0)
 
 

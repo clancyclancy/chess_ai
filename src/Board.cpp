@@ -61,13 +61,18 @@ bool Board::loadFromFEN(const std::string& fen)
 {
     std::istringstream ss(fen);
     std::string boardPart, turnPart, castlingPart, epPart;
-    int halfmove, fullmove;
+    int halfmove = 0, fullmove = 1;
 
     ss >> boardPart >> turnPart >> castlingPart >> epPart >> halfmove >> fullmove;
 
     for (int r = 0; r < 8; r++)
         for (int c = 0; c < 8; c++)
             board[r][c] = Piece();
+
+    // reset king tracking so a FEN without kings is detected below instead of
+    // silently keeping stale coordinates from the previous position
+    whiteKingRow = whiteKingCol = -1;
+    blackKingRow = blackKingCol = -1;
 
     int row = 0, col = 0;
     for (char ch : boardPart)
@@ -76,14 +81,21 @@ bool Board::loadFromFEN(const std::string& fen)
         {
             row++;
             col = 0;
+            if (row > 7)
+                return false; // more than 8 ranks
             continue;
         }
 
         if (std::isdigit(ch))
         {
             col += ch - '0';
+            if (col > 8)
+                return false; // rank wider than 8 squares
             continue;
         }
+
+        if (col > 7)
+            return false; // rank wider than 8 squares
 
         PieceColor color = std::isupper(ch) ? PieceColor::WHITE : PieceColor::BLACK;
         PieceType type;
@@ -118,6 +130,12 @@ bool Board::loadFromFEN(const std::string& fen)
         col++;
     }
 
+    // check detection and the search need both kings on the board
+    if (whiteKingRow == -1 || blackKingRow == -1)
+        return false;
+
+    if (turnPart != "w" && turnPart != "b")
+        return false;
     currentTurn = (turnPart == "w") ? PieceColor::WHITE : PieceColor::BLACK;
 
     whiteCanCastleKingside  = castlingPart.find('K') != std::string::npos;
@@ -127,14 +145,16 @@ bool Board::loadFromFEN(const std::string& fen)
 
     if (epPart != "-")
     {
-        int file = epPart[0] - 'a';
-        int rank = 8 - (epPart[1] - '0');
-        enPassantTargetRow = rank;
-        enPassantTargetCol = file;
-    }  
+        if (epPart.size() != 2 ||
+            epPart[0] < 'a' || epPart[0] > 'h' ||
+            epPart[1] < '1' || epPart[1] > '8')
+            return false;
+        enPassantTargetRow = 8 - (epPart[1] - '0');
+        enPassantTargetCol = epPart[0] - 'a';
+    }
     else
-    {  
-        enPassantTargetRow = -1; 
+    {
+        enPassantTargetRow = -1;
         enPassantTargetCol = -1;
     }
 
@@ -203,20 +223,29 @@ bool Board::makeMove(const Move& move, bool switchTurn)
     // Check if the requested move is in the legal list
     auto it = std::find_if(legalMoves.begin(), legalMoves.end(),
         [&](const Move& m) {
-            return m.getFromRow() == fromRow &&
-                   m.getFromCol() == fromCol &&
-                   m.getToRow()   == toRow &&
-                   m.getToCol()   == toCol &&
-                   m.getIsPromotion() == isPromotionMove;
+            if (m.getFromRow() != fromRow || m.getFromCol() != fromCol ||
+                m.getToRow()   != toRow   || m.getToCol()   != toCol)
+                return false;
+            if (m.getIsPromotion() != isPromotionMove)
+                return false;
+            // honor the caller's requested promotion piece when it names one
+            // (queen is generated first, so an unspecified promotion auto-queens)
+            if (isPromotionMove && move.getIsPromotion() &&
+                m.getPromotionType() != move.getPromotionType())
+                return false;
+            return true;
         });
 
     if (it == legalMoves.end()) {
-        return false; 
+        return false;
     }
 
     UndoInfo undo;
 
-    Board::makeUncheckedMove(move, undo, true);
+    // execute the generator's move, not the caller's: its promotion/castling/
+    // en-passant flags are authoritative, so a caller-supplied move with bogus
+    // flags (e.g. promotion set on a non-promotion move) can't corrupt the board
+    Board::makeUncheckedMove(*it, undo, true);
 
     return true;
 }

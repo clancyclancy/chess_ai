@@ -111,6 +111,9 @@ bool uciToMove(const std::string& s, Move& out)
 
     if (s.size() == 5)
     {
+        // promotion suffix is only valid onto the back ranks
+        if (tr != 0 && tr != 7)
+            return false;
         PieceType t;
         if (!promoCharToType(s[4], t))
             return false;
@@ -296,6 +299,20 @@ int runSelfTest(std::ostream& out)
         check(!uciToMove("i2e4", m), "reject i2e4", out);
         check(!uciToMove("e2e4x", m), "reject promo char x", out);
         check(!uciToMove("e2", m), "reject short token", out);
+        check(!uciToMove("e2e4q", m), "reject promotion suffix off the back rank", out);
+    }
+
+    // fen hardening: malformed FENs must be rejected, not half-applied
+    {
+        Board b;
+        check(!b.loadFromFEN("pppppppppp/8/8/8/8/8/8/8 w - - 0 1"), "reject 10-wide rank", out);
+        check(!b.loadFromFEN("8/8/8/8/8/8/8/8/K7 w - - 0 1"), "reject 9 ranks", out);
+        check(!b.loadFromFEN("k7/8/8/8/8/8/8/8 w - - 0 1"), "reject fen missing a king", out);
+        check(!b.loadFromFEN("k7/8/8/8/8/8/8/K7 x - - 0 1"), "reject bad turn field", out);
+        check(!b.loadFromFEN("k7/8/8/8/8/8/8/K7 w - e 0 1"), "reject bad en-passant field", out);
+        check(b.loadFromFEN("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
+              "accept startpos fen after rejections", out);
+        check(b.getPieceConst(7, 4).getType() == PieceType::KING, "king on e1 after reload", out);
     }
 
     // board application: castling detected from king two-square move
@@ -411,8 +428,10 @@ int main(int argc, char* argv[])
     Board position;              // authoritative position, rebuilt on every "position" command
     engine.setBoard(position);
 
-    LineQueue lines;
-    std::thread reader([&lines]()
+    // static: outlives main(), so a reader thread detached at shutdown can
+    // never touch a destroyed queue
+    static LineQueue lines;
+    std::thread reader([]()
     {
         std::string line;
         while (std::getline(std::cin, line))
@@ -525,7 +544,10 @@ int main(int argc, char* argv[])
                 {
                     if (!applyUciMove(b, mv))
                     {
+                        // reject the whole command: a truncated position would
+                        // silently desync us from the sender
                         send("info string illegal move in position command: " + mv);
+                        ok = false;
                         break;
                     }
                 }
@@ -541,27 +563,32 @@ int main(int argc, char* argv[])
         {
             int movetime = -1;
             int depth = -1;
+            bool infinite = false;
 
             std::string tok;
             while (iss >> tok)
             {
                 if (tok == "movetime") iss >> movetime;
                 else if (tok == "depth") iss >> depth;
-                // wtime/btime/winc/binc/infinite unsupported: fall through to default budget
+                else if (tok == "infinite") infinite = true;
+                // wtime/btime/winc/binc unsupported (no clock management):
+                // fall through to the default budget
             }
 
-            if (depth > 0 && movetime <= 0)
+            // both limits apply; whichever binds first stops the search.
+            // "infinite" searches until "stop". no limits at all -> 1000ms default.
+            if (infinite)
             {
-                // fixed-depth mode (reproducible): depth is the binding constraint
-                engine.setSearchDepth(depth);
+                engine.setSearchDepth(64);
                 engine.setMaxThinkingTimeMs(1 << 30);
             }
             else
             {
-                // movetime mode: raise the depth cap so time is the binding constraint
-                if (movetime <= 0) movetime = 1000;
-                engine.setSearchDepth(64);
-                engine.setMaxThinkingTimeMs(movetime);
+                engine.setSearchDepth(depth > 0 ? depth : 64);
+                if (movetime > 0)
+                    engine.setMaxThinkingTimeMs(movetime);
+                else
+                    engine.setMaxThinkingTimeMs(depth > 0 ? (1 << 30) : 1000);
             }
 
             // sync engine to the authoritative position (the engine auto-applies
