@@ -1746,26 +1746,22 @@ int ChessEngine::qSearch(int alpha, int beta, int qPly)
     // just use raw material to make sure capture chains arent missed
 
 
-    // Endings 
-        if (!board.isLegalMoveAvailable())
-        {
-            if (board.isInCheck(board.getCurrentTurn()))
-            {
-                // + ply to end sooner
-                return -10000 + qPly;
-            }
-            else
-            {
-                // stalemate
-                return 0;
-            }
-        }
-        if (!board.isSufficientMaterial() || board.getFiftyMoveClock() >= 100)    
-        {
-            // stalemate
-            // TODO: add 3 fold repetition    
-            return 0;
-        }
+    // Endings
+    // the full legal-move scan only runs when the side to move is actually in
+    // check (mate must still score as mate); the common not-in-check case
+    // skips it entirely -- leaf stalemates fall back to stand-pat, which is
+    // the standard qsearch trade-off
+    if (board.isInCheck(board.getCurrentTurn()) && !board.isLegalMoveAvailable())
+    {
+        // + ply to end sooner
+        return -10000 + qPly;
+    }
+    if (!board.isSufficientMaterial() || board.getFiftyMoveClock() >= 100)
+    {
+        // draw
+        // TODO: add 3 fold repetition
+        return 0;
+    }
 
 
 
@@ -1852,50 +1848,42 @@ int ChessEngine::negamax(int numPlyLeft, int alpha, int beta, int plyCount)
     nodesPerDepth[plyCount]++;
 
 
-    // Endings 
-    if (!board.isLegalMoveAvailable())
+    // Endings
+    // mate/stalemate detection lives in the !foundLegalMove fallback below:
+    // the old isLegalMoveAvailable() call ran a full legal-move scan at every
+    // node for something the move loop discovers for free
+    if (!board.isSufficientMaterial() || board.getFiftyMoveClock() >= 100)
     {
-        if (board.isInCheck(board.getCurrentTurn()))
-        {
-            // + ply to end sooner
-            return -10000 + plyCount;
-        }
-        else
-        {
-            // stalemate
-            return 0;
-        }
-    }
-    if (!board.isSufficientMaterial() || board.getFiftyMoveClock() >= 100)    
-    {
-        // stalemate
-        // TODO: add 3 fold repetition    
+        // draw
+        // TODO: add 3 fold repetition
         return 0;
     }
 
-    // Determine phase of game, per node
+    if (numPlyLeft == 0)
+    {
+        if (USE_QUIESCENCE_SEARCH)
+        {
+            //int qScore = qSearch(alpha, beta, 0);
+            //qNodesPerDepth[numPlyLeft] = qNodes;
+            return qSearch(alpha, beta, 0);
+        }
+        else
+        {
+            //PieceColor sideToMove = board.getCurrentTurn();
+            return evaluateBoard();  // evaluate all raw material on from side to move perspective
+        }
+    }
+
+    // Determine phase of game, per node (after the leaf check: leaves don't
+    // need it, and they are most of the nodes)
     // (this used to set a member that was never reset, which permanently
     // disabled null-move and futility pruning once any node saw low material,
     // while the local flag LMR checked was never set at all)
     int pieceCount = nonPawnMaterialCount();
     bool endgamePhase = (pieceCount < ENDGAME_PHASE_MATERIAL_THRESHOLD);
 
-
-
-    if (numPlyLeft == 0)
-    {
-        if (USE_QUIESCENCE_SEARCH)
-        {
-            //int qScore = qSearch(alpha, beta, 0);  
-            //qNodesPerDepth[numPlyLeft] = qNodes;
-            return qSearch(alpha, beta, 0);
-        }
-        else
-        {
-            //PieceColor sideToMove = board.getCurrentTurn();   
-            return evaluateBoard();  // evaluate all raw material on from side to move perspective  
-        }    
-    }
+    // check state feeds null move, futility, and mate scoring: compute once
+    bool inCheck = board.isInCheck(board.getCurrentTurn());
 
     int bestScore = -99999;
 
@@ -1910,8 +1898,8 @@ int ChessEngine::negamax(int numPlyLeft, int alpha, int beta, int plyCount)
     // zugzwang issues if only pawns             
     if (USE_NULL_MOVE_PRUNING && !endgamePhase)
     {
-        if (numPlyLeft >= NULL_MOVE_PRUNE_MIN_DEPTH && 
-            !board.isInCheck(board.getCurrentTurn()))
+        if (numPlyLeft >= NULL_MOVE_PRUNE_MIN_DEPTH &&
+            !inCheck)
         {
             // make null move
             Board::UndoInfo undoNullMove;
@@ -1952,7 +1940,7 @@ int ChessEngine::negamax(int numPlyLeft, int alpha, int beta, int plyCount)
     if (USE_FUTILITY_PRUNING && !endgamePhase &&
         numPlyLeft == 1 &&
         pieceCount > FUTILITY_PRUNE_MIN_NON_PAWN_MATERIAL &&
-        !board.isInCheck(board.getCurrentTurn()))
+        !inCheck)
     {
         futilityStaticEval = evaluateBoard();
         futilityNode = true;
@@ -2095,11 +2083,13 @@ int ChessEngine::negamax(int numPlyLeft, int alpha, int beta, int plyCount)
         moveIndex++; // LMR  
     }
 
-    // fall back
+    // no legal moves: mate or stalemate (this replaces the per-node
+    // isLegalMoveAvailable() scan that used to run at every node entry)
     if (!foundLegalMove)
     {
-        std::cout << "WARNING: No legal moves found at depth " << numPlyLeft << "\n";
-        return evaluateBoard();
+        if (inCheck)
+            return -10000 + plyCount; // + ply to prefer faster mates
+        return 0; // stalemate
     }
 
     // every legal move was futility-pruned: fail low with the static eval
@@ -2550,15 +2540,16 @@ bool ChessEngine::isQuietMove(const Move& move) const
 }          
 
 bool ChessEngine::isFutilityPruneCandidate(const Move& move) const
-{   
-    bool quiet                  = isQuietMove(move);    
-    bool inCheckBeforeMove      = board.isInCheck(board.getCurrentTurn());  
-    bool castleMove             = move.isCastlingMove();
-    bool passedPawnPush         = isPassedPawnPush(move);
-    
-    // dont prune passed pawn push 
+{
+    // the caller's futility gate already guarantees the side to move is not
+    // in check, so no per-move isInCheck here
+    bool quiet          = isQuietMove(move);
+    bool castleMove     = move.isCastlingMove();
+    bool passedPawnPush = isPassedPawnPush(move);
 
-    return (quiet && !inCheckBeforeMove && !castleMove && !passedPawnPush);
+    // dont prune passed pawn push
+
+    return (quiet && !castleMove && !passedPawnPush);
 }
 
 
