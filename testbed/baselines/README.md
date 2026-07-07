@@ -17,4 +17,4 @@ hash fully identifies the code.
 
 | file | date | git | notes |
 |---|---|---|---|
-| `ChessUCI-7d7cdff-20260706.exe` | 2026-07-06 | `7d7cdff` (clean tree) | First frozen baseline. Search: iterative deepening, aspiration windows, null-move pruning, futility pruning, LMR, quiescence + SEE, killer/history move ordering. Built Release (Ninja/MSVC) from the commit that added the UCI adapter and testbed. Selftest passed. |
+| `ChessUCI-424b0e0-20260706.exe` | 2026-07-06 | `424b0e0` (clean tree) | First frozen baseline. Search: iterative deepening, aspiration windows, null-move pruning, futility pruning, LMR, quiescence + SEE, killer/history move ordering. Built Release (Ninja/MSVC) from the commit that added the UCI adapter and testbed. Selftest passed. (Hash renamed from `7d7cdff` after a history rewrite; identical source and binary.) |

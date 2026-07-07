@@ -38,6 +38,22 @@ Outputs land in `testbed/results/match_<timestamp>/`:
 
 A running summary (score/Elo so far) prints after each game.
 
+## Match history viewer
+
+Every completed match is also appended to `testbed/history.json` (and its
+`history.js` mirror, which exists because browsers block `fetch()` of local
+files). Open **`testbed/results_viewer.html`** in any browser — no server
+needed — to see:
+
+- a KPI row for the latest match (Elo ± 95%, record, score, LOS)
+- Elo per match with 95% error bars (is the interval clear of zero?)
+- win/draw/loss bars per match, centered on draws — losses extend left,
+  wins right, and bar length scales with game count
+- a sortable-at-a-glance table of every comparison ever run
+
+`history.json` is committed, so the comparison record travels with the repo.
+Light/dark theme follows the OS; the button in the corner overrides it.
+
 ## UCI subset implemented by ChessUCI
 
 | command | behaviour |

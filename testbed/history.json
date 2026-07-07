@@ -1,0 +1,21 @@
+[
+ {
+  "date": "2026-07-06T22:45:00",
+  "label_a": "bugfixes",
+  "label_b": "baseline-424b0e0",
+  "engine_a": "build\\ChessUCI.exe",
+  "engine_b": "testbed\\baselines\\ChessUCI-424b0e0-20260706.exe",
+  "control": "200 ms/move",
+  "games": 20,
+  "wins": 10,
+  "losses": 1,
+  "draws": 9,
+  "score": 0.725,
+  "elo": 168.4,
+  "margin": 119.8,
+  "los": 0.9966,
+  "incidents": 1,
+  "duration_s": 174,
+  "out_dir": "testbed\\results\\bugfix_sanity"
+ }
+]

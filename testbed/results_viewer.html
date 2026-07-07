@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Engine match history</title>
+<style>
+  :root {
+    --surface-1:    #fcfcfb;
+    --page:         #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary:#52514e;
+    --text-muted:   #898781;
+    --grid:         #e1e0d9;
+    --baseline:     #c3c2b7;
+    --border:       rgba(11,11,11,0.10);
+    --win:          #2a78d6;   /* diverging cool pole */
+    --loss:         #e34948;   /* diverging warm pole */
+    --draw:         #f0efec;   /* neutral midpoint */
+    --draw-ink:     #52514e;
+    --accent:       #2a78d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface-1:    #1a1a19;
+      --page:         #0d0d0d;
+      --text-primary: #ffffff;
+      --text-secondary:#c3c2b7;
+      --text-muted:   #898781;
+      --grid:         #2c2c2a;
+      --baseline:     #383835;
+      --border:       rgba(255,255,255,0.10);
+      --win:          #3987e5;
+      --loss:         #e66767;
+      --draw:         #383835;
+      --draw-ink:     #c3c2b7;
+      --accent:       #3987e5;
+    }
+  }
+  :root[data-theme="light"] {
+    --surface-1:    #fcfcfb;
+    --page:         #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary:#52514e;
+    --text-muted:   #898781;
+    --grid:         #e1e0d9;
+    --baseline:     #c3c2b7;
+    --border:       rgba(11,11,11,0.10);
+    --win:          #2a78d6;
+    --loss:         #e34948;
+    --draw:         #f0efec;
+    --draw-ink:     #52514e;
+    --accent:       #2a78d6;
+  }
+  :root[data-theme="dark"] {
+    --surface-1:    #1a1a19;
+    --page:         #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary:#c3c2b7;
+    --text-muted:   #898781;
+    --grid:         #2c2c2a;
+    --baseline:     #383835;
+    --border:       rgba(255,255,255,0.10);
+    --win:          #3987e5;
+    --loss:         #e66767;
+    --draw:         #383835;
+    --draw-ink:     #c3c2b7;
+    --accent:       #3987e5;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 20px 60px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--text-secondary); font-size: 13px; margin: 0 0 20px; }
+  #themeBtn {
+    background: var(--surface-1); color: var(--text-secondary);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 18px;
+  }
+  h2 { font-size: 13px; font-weight: 600; color: var(--text-secondary);
+       text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 12px; }
+
+  /* KPI row */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+  .tile { padding: 6px 2px; }
+  .tile .label { font-size: 12px; color: var(--text-muted); margin-bottom: 2px; }
+  .tile .value { font-size: 30px; font-weight: 650; letter-spacing: -0.01em; }
+  .tile .detail { font-size: 12px; color: var(--text-secondary); }
+
+  /* legend */
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--text-secondary); margin: 2px 0 10px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .chip { width: 10px; height: 10px; border-radius: 3px; border: 1px solid var(--border); display: inline-block; }
+
+  .chart-scroll { overflow-x: auto; }
+  svg { display: block; }
+  svg text { font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .rowlabel { fill: var(--text-primary); font-weight: 600; }
+  .rowmeta  { fill: var(--text-muted); font-size: 11px; }
+  .counts   { fill: var(--text-secondary); font-size: 12px; }
+  .axis     { fill: var(--text-muted); font-size: 11px; }
+
+  /* tooltip */
+  #tip {
+    position: fixed; pointer-events: none; z-index: 10; display: none;
+    background: var(--surface-1); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 12px; line-height: 1.5;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18); max-width: 300px;
+  }
+  #tip .t-head { font-weight: 600; }
+  #tip .t-sub  { color: var(--text-secondary); }
+
+  /* table */
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--grid);
+           font-variant-numeric: tabular-nums; white-space: nowrap; }
+  th { color: var(--text-muted); font-weight: 600; font-size: 11px;
+       text-transform: uppercase; letter-spacing: 0.03em; }
+  th:first-child, td:first-child, th.l, td.l { text-align: left; }
+  tr:last-child td { border-bottom: none; }
+  .table-scroll { overflow-x: auto; }
+  .empty { color: var(--text-muted); padding: 30px 0; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Engine match history</h1>
+      <p class="sub">Every A-vs-B comparison run through <code>run_match.py</code>. All numbers are from engine A&rsquo;s perspective.</p>
+    </div>
+    <button id="themeBtn" title="Toggle color theme">theme: auto</button>
+  </header>
+
+  <div class="card" id="kpiCard">
+    <h2 id="kpiTitle">Latest match</h2>
+    <div class="kpis" id="kpis"></div>
+  </div>
+
+  <div class="card">
+    <h2>Elo per match (95% interval)</h2>
+    <div class="chart-scroll"><div id="eloChart"></div></div>
+  </div>
+
+  <div class="card">
+    <h2>Results by match</h2>
+    <div class="legend">
+      <span><span class="chip" style="background: var(--win)"></span>wins (A)</span>
+      <span><span class="chip" style="background: var(--draw)"></span>draws</span>
+      <span><span class="chip" style="background: var(--loss)"></span>losses (A)</span>
+    </div>
+    <div class="chart-scroll"><div id="wdlChart"></div></div>
+  </div>
+
+  <div class="card">
+    <h2>All matches</h2>
+    <div class="table-scroll"><div id="tableBox"></div></div>
+  </div>
+</div>
+
+<div id="tip"></div>
+
+<script src="history.js"></script>
+<script>
+(function () {
+  "use strict";
+  const data = (window.MATCH_HISTORY || []).slice()
+    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"]/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const fmtElo = e => (e > 0 ? "+" : "") + Math.round(e);
+  const fmtDate = d => (d || "").slice(0, 10);
+  const svgNS = "http://www.w3.org/2000/svg";
+  function el(name, attrs, parent) {
+    const n = document.createElementNS(svgNS, name);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+
+  /* ---------- theme toggle: auto -> light -> dark ---------- */
+  const themeBtn = $("themeBtn");
+  const themes = ["auto", "light", "dark"];
+  let themeIdx = 0;
+  themeBtn.addEventListener("click", () => {
+    themeIdx = (themeIdx + 1) % themes.length;
+    const t = themes[themeIdx];
+    if (t === "auto") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", t);
+    themeBtn.textContent = "theme: " + t;
+  });
+
+  /* ---------- tooltip ---------- */
+  const tip = $("tip");
+  function showTip(html, ev) {
+    tip.innerHTML = html;
+    tip.style.display = "block";
+    moveTip(ev);
+  }
+  function moveTip(ev) {
+    const pad = 14;
+    let x = ev.clientX + pad, y = ev.clientY + pad;
+    const r = tip.getBoundingClientRect();
+    if (x + r.width > innerWidth - 8)  x = ev.clientX - r.width - pad;
+    if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - pad;
+    tip.style.left = x + "px";
+    tip.style.top  = y + "px";
+  }
+  function hideTip() { tip.style.display = "none"; }
+  function hover(node, htmlFn) {
+    node.addEventListener("mouseenter", ev => showTip(htmlFn(), ev));
+    node.addEventListener("mousemove", moveTip);
+    node.addEventListener("mouseleave", hideTip);
+  }
+
+  function matchTipHtml(m) {
+    return `<div class="t-head">${esc(m.label_a)} vs ${esc(m.label_b)}</div>
+      <div class="t-sub">${esc(fmtDate(m.date))} &middot; ${esc(m.control)} &middot; ${m.games} games</div>
+      <div>+${m.wins} &minus;${m.losses} =${m.draws} &nbsp; score ${m.score.toFixed(3)}</div>
+      <div>Elo ${fmtElo(m.elo)} &plusmn; ${Math.round(m.margin)} &middot; LOS ${(m.los * 100).toFixed(1)}%</div>`;
+  }
+
+  if (!data.length) {
+    $("kpis").innerHTML = '<div class="empty">No matches recorded yet — run testbed/run_match.py.</div>';
+    $("eloChart").innerHTML = '<div class="empty">No data.</div>';
+    $("wdlChart").innerHTML = '<div class="empty">No data.</div>';
+    $("tableBox").innerHTML = '<div class="empty">No data.</div>';
+    return;
+  }
+
+  /* ---------- KPI row (latest match) ---------- */
+  const last = data[data.length - 1];
+  $("kpiTitle").textContent =
+    `Latest: ${last.label_a} vs ${last.label_b} — ${fmtDate(last.date)}, ${last.control}`;
+  $("kpis").innerHTML = [
+    { label: "Elo (A)", value: fmtElo(last.elo), detail: `± ${Math.round(last.margin)} (95%)` },
+    { label: "Record (A)", value: `+${last.wins} −${last.losses} =${last.draws}`, detail: `${last.games} games` },
+    { label: "Score", value: last.score.toFixed(3), detail: `${(last.wins + 0.5 * last.draws).toFixed(1)} / ${last.games}` },
+    { label: "LOS", value: (last.los * 100).toFixed(1) + "%", detail: "likelihood A is stronger" },
+  ].map(t => `<div class="tile"><div class="label">${t.label}</div>
+              <div class="value">${t.value}</div><div class="detail">${t.detail}</div></div>`).join("");
+
+  /* ---------- Elo dot + whisker chart ---------- */
+  (function eloChart() {
+    const box = $("eloChart");
+    const W = Math.max(520, Math.min(940, box.parentElement.clientWidth || 940));
+    const H = 240, mL = 46, mR = 20, mT = 12, mB = 40;
+    const iw = W - mL - mR, ih = H - mT - mB;
+
+    let lo = 0, hi = 0;
+    for (const m of data) {
+      lo = Math.min(lo, m.elo - m.margin);
+      hi = Math.max(hi, m.elo + m.margin);
+    }
+    const span = Math.max(hi - lo, 50), padY = span * 0.08;
+    lo -= padY; hi += padY;
+    const y = v => mT + ih * (1 - (v - lo) / (hi - lo));
+    const x = i => data.length === 1 ? mL + iw / 2 : mL + (iw * i) / (data.length - 1);
+
+    const svg = el("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img",
+      "aria-label": "Elo per match with 95 percent intervals" });
+
+    // recessive horizontal grid at nice steps
+    const step = span > 600 ? 200 : span > 300 ? 100 : 50;
+    for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+      if (v === 0) continue;
+      el("line", { x1: mL, x2: W - mR, y1: y(v), y2: y(v),
+                   stroke: "var(--grid)", "stroke-width": 1 }, svg);
+      el("text", { x: mL - 8, y: y(v) + 4, "text-anchor": "end", class: "axis" }, svg)
+        .textContent = fmtElo(v);
+    }
+    // zero baseline, emphasized
+    el("line", { x1: mL, x2: W - mR, y1: y(0), y2: y(0),
+                 stroke: "var(--baseline)", "stroke-width": 1.5 }, svg);
+    el("text", { x: mL - 8, y: y(0) + 4, "text-anchor": "end", class: "axis" }, svg).textContent = "0";
+
+    data.forEach((m, i) => {
+      const cx = x(i);
+      // whisker: 95% interval
+      el("line", { x1: cx, x2: cx, y1: y(m.elo - m.margin), y2: y(m.elo + m.margin),
+                   stroke: "var(--accent)", "stroke-width": 2, "stroke-linecap": "round",
+                   opacity: 0.55 }, svg);
+      el("line", { x1: cx - 5, x2: cx + 5, y1: y(m.elo + m.margin), y2: y(m.elo + m.margin),
+                   stroke: "var(--accent)", "stroke-width": 2, opacity: 0.55 }, svg);
+      el("line", { x1: cx - 5, x2: cx + 5, y1: y(m.elo - m.margin), y2: y(m.elo - m.margin),
+                   stroke: "var(--accent)", "stroke-width": 2, opacity: 0.55 }, svg);
+      // dot with a surface ring so it stays separable over the whisker
+      el("circle", { cx, cy: y(m.elo), r: 6, fill: "var(--accent)",
+                     stroke: "var(--surface-1)", "stroke-width": 2 }, svg);
+      // x tick (clamped inward so edge labels don't clip)
+      const tx = Math.max(mL + 40, Math.min(W - mR - 44, cx));
+      el("text", { x: tx, y: H - mB + 16, "text-anchor": "middle", class: "axis" }, svg)
+        .textContent = fmtDate(m.date);
+      el("text", { x: tx, y: H - mB + 30, "text-anchor": "middle", class: "axis" }, svg)
+        .textContent = `${m.label_a} vs ${m.label_b}`.slice(0, 26);
+      // generous invisible hit target
+      const hit = el("rect", { x: cx - 14, y: mT, width: 28, height: ih,
+                               fill: "transparent" }, svg);
+      hover(hit, () => matchTipHtml(m));
+    });
+
+    box.innerHTML = "";
+    box.appendChild(svg);
+  })();
+
+  /* ---------- W/D/L diverging stacked bars, centered on draws ---------- */
+  (function wdlChart() {
+    const box = $("wdlChart");
+    const W = Math.max(520, Math.min(940, box.parentElement.clientWidth || 940));
+    const rowH = 54, barH = 22, mT = 6, mB = 26, mX = 10;
+    const H = mT + rowH * data.length + mB;
+    const cx = W / 2;
+
+    // shared scale: px per game, so longer bars = more games = more evidence
+    let maxSide = 1;
+    for (const m of data)
+      maxSide = Math.max(maxSide, m.losses + m.draws / 2, m.wins + m.draws / 2);
+    const pxPerGame = (W / 2 - 150) / maxSide;
+
+    const svg = el("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img",
+      "aria-label": "Wins draws losses per match, centered on draws" });
+
+    // center guide
+    el("line", { x1: cx, x2: cx, y1: mT, y2: H - mB, stroke: "var(--grid)",
+                 "stroke-width": 1, "stroke-dasharray": "3 3" }, svg);
+    el("text", { x: cx, y: H - 8, "text-anchor": "middle", class: "axis" }, svg)
+      .textContent = "← losses    center of draws    wins →";
+
+    const gap = 2; // surface gap between segments
+    data.forEach((m, i) => {
+      const top = mT + i * rowH + 20;
+      const yMid = top + barH / 2;
+      // row label
+      el("text", { x: mX, y: top - 6, class: "rowlabel" }, svg)
+        .textContent = `${m.label_a} vs ${m.label_b}`;
+      el("text", { x: mX, y: top + 7, class: "rowmeta" }, svg)
+        .textContent = `${fmtDate(m.date)} · ${m.control} · ${m.games} games`;
+
+      const dW = m.draws * pxPerGame, wW = m.wins * pxPerGame, lW = m.losses * pxPerGame;
+      const dX = cx - dW / 2;
+      const r = 4; // rounded data-ends on the outer ends only
+
+      function seg(x0, w0, fill, rounded, extra) {
+        if (w0 <= 0) return null;
+        const s = el("path", {}, svg);
+        const x1 = x0 + w0, y0 = top, y1 = top + barH;
+        let d;
+        if (rounded === "left")
+          d = `M${x1},${y0} H${x0 + r} Q${x0},${y0} ${x0},${y0 + r} V${y1 - r} Q${x0},${y1} ${x0 + r},${y1} H${x1} Z`;
+        else if (rounded === "right")
+          d = `M${x0},${y0} H${x1 - r} Q${x1},${y0} ${x1},${y0 + r} V${y1 - r} Q${x1},${y1} ${x1 - r},${y1} H${x0} Z`;
+        else
+          d = `M${x0},${y0} H${x1} V${y1} H${x0} Z`;
+        s.setAttribute("d", d);
+        s.setAttribute("style", `fill:${fill};${extra || ""}`);
+        return s;
+      }
+
+      // draws (neutral, recessive: hairline border carries the edge)
+      const sD = seg(dX, dW, "var(--draw)", null, "stroke: var(--border); stroke-width:1;");
+      // losses grow left of the draw block
+      const sL = seg(dX - gap - lW, lW, "var(--loss)", "left");
+      // wins grow right of the draw block
+      const sW = seg(dX + dW + gap, wW, "var(--win)", "right");
+
+      // always-visible counts at the outer ends (the draw neutral is
+      // deliberately recessive, so numbers never rely on fill alone)
+      const leftEdge = dX - (lW > 0 ? gap + lW : 0);
+      const rightEdge = dX + dW + (wW > 0 ? gap + wW : 0);
+      el("text", { x: leftEdge - 7, y: yMid + 4, "text-anchor": "end", class: "counts" }, svg)
+        .textContent = `−${m.losses}`;
+      el("text", { x: rightEdge + 7, y: yMid + 4, "text-anchor": "start", class: "counts" }, svg)
+        .textContent = `+${m.wins}`;
+      if (m.draws > 0)
+        el("text", { x: cx, y: top - 6, "text-anchor": "middle", class: "rowmeta" }, svg)
+          .textContent = `=${m.draws}`;
+
+      // hit target covers the whole row band
+      const hit = el("rect", { x: 0, y: top - 18, width: W, height: rowH - 6,
+                               fill: "transparent" }, svg);
+      hover(hit, () => matchTipHtml(m));
+    });
+
+    box.innerHTML = "";
+    box.appendChild(svg);
+  })();
+
+  /* ---------- table ---------- */
+  (function table() {
+    const rows = data.slice().reverse().map(m => `<tr>
+      <td>${esc(fmtDate(m.date))}</td>
+      <td class="l">${esc(m.label_a)}</td>
+      <td class="l">${esc(m.label_b)}</td>
+      <td class="l">${esc(m.control)}</td>
+      <td>${m.games}</td>
+      <td>${m.wins}</td>
+      <td>${m.losses}</td>
+      <td>${m.draws}</td>
+      <td>${m.score.toFixed(3)}</td>
+      <td>${fmtElo(m.elo)}</td>
+      <td>±${Math.round(m.margin)}</td>
+      <td>${(m.los * 100).toFixed(1)}%</td>
+      <td>${m.incidents}</td>
+    </tr>`).join("");
+    $("tableBox").innerHTML = `<table>
+      <thead><tr><th class="l">date</th><th class="l">engine A</th><th class="l">engine B</th>
+      <th class="l">control</th><th>games</th><th>W</th><th>L</th><th>D</th>
+      <th>score</th><th>elo</th><th>95%</th><th>LOS</th><th>incidents</th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+  })();
+})();
+</script>
+</body>
+</html>
