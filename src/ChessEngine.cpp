@@ -1865,13 +1865,12 @@ int ChessEngine::negamax(int numPlyLeft, int alpha, int beta, int plyCount)
         return 0;
     }
 
-    // Determine phase of game
+    // Determine phase of game, per node
+    // (this used to set a member that was never reset, which permanently
+    // disabled null-move and futility pruning once any node saw low material,
+    // while the local flag LMR checked was never set at all)
     int pieceCount = nonPawnMaterialCount();
-    bool isEndgamePhase = false;
-    if (pieceCount < ENDGAME_PHASE_MATERIAL_THRESHOLD)
-    {
-        inEndgamePhase = true;
-    }
+    bool endgamePhase = (pieceCount < ENDGAME_PHASE_MATERIAL_THRESHOLD);
 
 
 
@@ -1901,7 +1900,7 @@ int ChessEngine::negamax(int numPlyLeft, int alpha, int beta, int plyCount)
     // if doing nothing is pretty good, dont search this node
     // only run when depth > 2, not in check, not pawn endgame
     // zugzwang issues if only pawns             
-    if (USE_NULL_MOVE_PRUNING && !inEndgamePhase)
+    if (USE_NULL_MOVE_PRUNING && !endgamePhase)
     {
         if (numPlyLeft >= NULL_MOVE_PRUNE_MIN_DEPTH && 
             !board.isInCheck(board.getCurrentTurn()))
@@ -1968,7 +1967,7 @@ int ChessEngine::negamax(int numPlyLeft, int alpha, int beta, int plyCount)
         // at a depth of 1, a quiet move cannot reasonably raise alpha 
         // if board state + some margin is still less than alpha        
         // dont prune in endgame with low material, can miss a quiet pawn push that is really good
-        if (USE_FUTILITY_PRUNING && !inEndgamePhase)
+        if (USE_FUTILITY_PRUNING && !endgamePhase)
         {
             // get board state info
             int boardEvaluationBeforeMove = evaluateBoard();                 
@@ -2001,7 +2000,7 @@ int ChessEngine::negamax(int numPlyLeft, int alpha, int beta, int plyCount)
         
         int score;
 
-        if (USE_LATE_MOVE_REDUCTION && !isEndgamePhase)   
+        if (USE_LATE_MOVE_REDUCTION && !endgamePhase)
         {             
 
             // late move reductions        

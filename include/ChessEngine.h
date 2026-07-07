@@ -154,10 +154,9 @@ private:
     std::atomic<int> MAX_THINKING_TIME_MS{5000};
          
 
-    // end game disable pruning 
-    // TODO: implement
-    const int ENDGAME_PHASE_MATERIAL_THRESHOLD = 10; // R+R 
-    bool inEndgamePhase = false;     
+    // endgame: null-move/futility/LMR are disabled below this material level
+    // (zugzwang risk for null move; quiet pawn pushes matter for futility)
+    const int ENDGAME_PHASE_MATERIAL_THRESHOLD = 10; // R+R
 
 
     // count nodes searched    
