@@ -332,7 +332,9 @@ private:
 
     int SEE(const Move& move) const;
 
-    void getAllAttackersOfSquare(int toRow, int toCol, Board passedInBoard, std::vector<Piece>& whiteAttackPieces,  std::vector<Piece>& blackAttackPieces ) const;   
+    // const ref: this runs up to 16 times per SEE call in the hottest qsearch
+    // path, and by-value copied the whole Board every time
+    void getAllAttackersOfSquare(int toRow, int toCol, const Board& passedInBoard, std::vector<Piece>& whiteAttackPieces,  std::vector<Piece>& blackAttackPieces ) const;
 
     void resetCounters();
 

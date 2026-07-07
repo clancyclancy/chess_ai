@@ -1039,8 +1039,10 @@ int ChessEngine::evaluatePawnStructure(PieceColor sideToMove) const
         {
             if (!passed) break;
 
-            // white pawn starts from row and moves up towards row 0
-            for (int r = row; r > 0; r--)
+            // white pawn moves up towards row 0; scan strictly AHEAD of the
+            // pawn (starting at the pawn's own rank made white stricter than
+            // black: a same-rank enemy pawn can never stop this pawn)
+            for (int r = row - 1; r > 0; r--)
             {
                 const Piece& p = board.getPieceConst(r, f);
                 if (!p.isEmpty() &&
@@ -1624,8 +1626,10 @@ void ChessEngine::getOrderedMoves(std::vector<Move>& moves, int ply) const
         // If there is a capture, use MVV-LVA
         // otherwise use killer moves   
         // then history heuristic   
-        if (move == moveOrderingPreviousBestMove)
+        if (ply == 0 && move == moveOrderingPreviousBestMove)
         {
+            // previous iteration's root best move; only meaningful at the
+            // root -- an interior move with the same squares is unrelated
             score = MOVE_ORDERING_PREVIOUS_BEST_MOVE;
         }
         else if (isPromotion) 
@@ -2263,7 +2267,7 @@ int ChessEngine::SEE(const Move& move) const
 }
 
 
-void ChessEngine::getAllAttackersOfSquare(int toRow, int toCol, Board passedInBoard, std::vector<Piece>& whiteAttackPieces,  std::vector<Piece>& blackAttackPieces ) const
+void ChessEngine::getAllAttackersOfSquare(int toRow, int toCol, const Board& passedInBoard, std::vector<Piece>& whiteAttackPieces,  std::vector<Piece>& blackAttackPieces ) const
 {
     
     // from the capture square, look for all attackers and defenders
