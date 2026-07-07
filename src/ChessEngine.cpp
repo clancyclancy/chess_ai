@@ -1386,57 +1386,57 @@ int ChessEngine::evaluateKingRestriction(PieceColor sideToMove, int pieceCount) 
     enemyKingRow = (sideToMove == PieceColor::WHITE) ? bkRow : wkRow;
     enemyKingCol = (sideToMove == PieceColor::WHITE) ? bkCol : wkCol;
 
+    int ownKingRow = (sideToMove == PieceColor::WHITE) ? wkRow : bkRow;
+    int ownKingCol = (sideToMove == PieceColor::WHITE) ? wkCol : bkCol;
+
     PieceColor enemyColor = (sideToMove == PieceColor::WHITE) ? PieceColor::BLACK : PieceColor::WHITE;
 
-    // Generate king moves 
-    static const int dirs[8][2] = 
-    { 
-      {1, 0},{-1, 0},{0, 1},{ 0,-1}, 
-      {1, 1},{ 1,-1},{-1,1},{-1,-1} 
+    // Generate king moves
+    static const int dirs[8][2] =
+    {
+      {1, 0},{-1, 0},{0, 1},{ 0,-1},
+      {1, 1},{ 1,-1},{-1,1},{-1,-1}
     };
 
-
-    int legalMoves = 0;
-
-    for (auto dir: dirs)
+    // guide king to edges
+    const int KING_RESTRICTION_TABLE_END[8][8] =
     {
-        int newRow = enemyKingRow + dir[0];
-        int newCol = enemyKingCol + dir[1];
+        {100,  60,  60,  60,  60,  60,  80, 100},
+        { 80,  20,  20,  20,  20,  20,  20,  80},
+        { 60,  20, -20, -20, -20, -20,  20,  60},
+        { 60,  20, -20, -60, -60, -20,  20,  60},
+        { 60,  20, -20, -60, -60, -20,  20,  60},
+        { 60,  20, -20, -20, -20, -20,  20,  60},
+        { 80,  20,  20,  20,  20,  20,  20,  80},
+        {100,  60,  60,  60,  60,  60,  80, 100},
+    };
 
-        if (newRow < 0 || newRow > 7 || newCol < 0 || newCol > 7)
-            continue;
-
-        const Piece& target = board.getPieceConst(newRow, newCol);
-        
-        if (!target.isEmpty() && target.getColor() == enemyColor)
-            continue;
-
-
-        // see if square is attacked
-        if (!board.isSquareUnderAttack(newRow, newCol, sideToMove))
+    // how boxed-in is a king: few safe squares + pushed toward the edge
+    auto restriction = [&](int kRow, int kCol, PieceColor kingColor, PieceColor attackerColor) -> int
+    {
+        int legalMoves = 0;
+        for (auto dir : dirs)
         {
-            legalMoves++;
+            int newRow = kRow + dir[0];
+            int newCol = kCol + dir[1];
+
+            if (newRow < 0 || newRow > 7 || newCol < 0 || newCol > 7)
+                continue;
+
+            const Piece& target = board.getPieceConst(newRow, newCol);
+            if (!target.isEmpty() && target.getColor() == kingColor)
+                continue;
+
+            if (!board.isSquareUnderAttack(newRow, newCol, attackerColor))
+                legalMoves++;
         }
-
-
-    }
-
-    egScore = (8 - legalMoves) * 20;
-
-     // guide king to edges 
-    const int ENEMY_KING_TABLE_END[8][8] = 
-    {
-        {100,  60,  60,  60,  60,  60,  80, 100},
-        { 80,  20,  20,  20,  20,  20,  20,  80},
-        { 60,  20, -20, -20, -20, -20,  20,  60},
-        { 60,  20, -20, -60, -60, -20,  20,  60},
-        { 60,  20, -20, -60, -60, -20,  20,  60},
-        { 60,  20, -20, -20, -20, -20,  20,  60},
-        { 80,  20,  20,  20,  20,  20,  20,  80},
-        {100,  60,  60,  60,  60,  60,  80, 100},
+        return (8 - legalMoves) * 20 + KING_RESTRICTION_TABLE_END[kRow][kCol];
     };
 
-    egScore += ENEMY_KING_TABLE_END[enemyKingRow][enemyKingCol];
+    // enemy-minus-own keeps the term antisymmetric: scoring only the enemy
+    // king let BOTH perspectives claim a bonus for the same position
+    egScore = restriction(enemyKingRow, enemyKingCol, enemyColor, sideToMove)
+            - restriction(ownKingRow, ownKingCol, sideToMove, enemyColor);
 
 
     // only applies in endgame
@@ -1472,28 +1472,37 @@ int ChessEngine::evaluateKingToKingDistance(PieceColor sideToMove, int pieceCoun
 
 
     // LERP  A * (1-t) + B * t
-    // kings two squares away: k2kScore = 250, 
-    // kings opposite corners: k2kScore = -350    
+    // kings two squares away: k2kScore = 250,
+    // kings opposite corners: k2kScore = -350
     int distance = rowDiff + colDiff;
     int const MAX_DIST = 14;
     int const A = 25;
     int const B = -25;
     int egScore = A * (MAX_DIST - distance) + B * distance;
-    
-    
+
+    // king proximity helps whoever is trying to convert: credit the side
+    // ahead in material. distance is symmetric, so without this the term
+    // returned the same positive value from BOTH perspectives, breaking
+    // eval antisymmetry and injecting odd/even-ply noise into endgames
+    int materialEdge = rawPieceTotal(sideToMove); // >0 when side to move is ahead
+    if (materialEdge == 0)
+        return 0;
+    if (materialEdge < 0)
+        egScore = -egScore;
+
     // only applies in endgame
     int mgScore = 0;
 
 
-    // linear game phase blend 
+    // linear game phase blend
     // all pieces on board: score = mgScore
     // no pieces on board:  score = egScore
     score =
         (
-         mgScore * pieceCount + 
+         mgScore * pieceCount +
          egScore * (MAX_PHASE - pieceCount)
-        ) / MAX_PHASE;    
-    
+        ) / MAX_PHASE;
+
     return score;
 }
 
